@@ -1,0 +1,59 @@
+{
+  "skill_name": "assessing-a-codebase",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "every new session i open claude has to re-derive our rails app from scratch before it can help me. set up .claude/rules/ for ~/Code/streaming_content so future sessions arrive warm",
+      "expected_output": "Three rules files created in .claude/rules/ of the repo (not just returned as content). Each file under 150 lines. Files include: dead code section in architecture.md, footguns section in domain-glossary.md, never-do-X patterns in conventions.md, and benchmark.md with verifiable Q&A.",
+      "files": [],
+      "expectations": [
+        "architecture.md exists and is under 150 lines",
+        "domain-glossary.md exists and is under 150 lines",
+        "conventions.md exists and is under 150 lines",
+        "architecture.md contains a 'Known Gaps' or 'Tech Debt' or 'Dead Code' section",
+        "architecture.md mentions Solid Queue and the advisory_fetch single-thread design rationale",
+        "domain-glossary.md contains a 'Footguns' or 'Common Mistakes' section with at least one wrong-vs-right pattern",
+        "domain-glossary.md distinguishes Interaction archived status from avoidlist interaction_type (orthogonal, not synonymous)",
+        "conventions.md shows the wrong authorization pattern (Interaction.find) alongside the correct scoped pattern",
+        "conventions.md documents update_column as forbidden with the exception (Syncable#mark_synced! intentional use)",
+        "benchmark.md exists in .claude/rules/ with at least 3 verifiable questions and expected answers"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "create architecture.md, domain-glossary.md and conventions.md under .claude/rules/ for ~/Code/streaming_content",
+      "expected_output": "Three rules files created via the full 8-step assessment workflow. Each file under 150 lines. architecture.md includes a Known Gaps/Tech Debt section calling out dead code (python/content_scraper/). domain-glossary.md includes footguns (e.g., pay_customers.deleted_at is Pay gem internal, not app-level). conventions.md includes explicit never-do-X patterns.",
+      "files": [],
+      "expectations": [
+        "architecture.md exists and is under 150 lines",
+        "domain-glossary.md exists and is under 150 lines",
+        "conventions.md exists and is under 150 lines",
+        "architecture.md contains a 'Known Gaps' or 'Tech Debt' or 'Dead Code' section",
+        "architecture.md mentions python/content_scraper/ as dead code or replaced by Firecrawl",
+        "domain-glossary.md contains a 'Footguns' or 'Common Mistakes' section",
+        "domain-glossary.md warns about pay_customers.deleted_at being Pay gem internal (or equivalent footgun about external library internals)",
+        "domain-glossary.md explains store_accessor as the required access pattern for shows.metadata JSONB (not direct hash access)",
+        "conventions.md shows both the correct and incorrect authorization pattern in code blocks",
+        "benchmark.md exists in .claude/rules/ with at least 3 verifiable questions and expected answers"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "i'm onboarding to ~/Code/streaming_content and want persistent context files so AI sessions don't start cold every time. what's the right way to set this up?",
+      "expected_output": "Uses the skill workflow to assess and generate .claude/rules/ files. Does not just explain what to do — actually creates the files. Files are under 150 lines each. Footguns and dead code are documented. benchmark.md is created for future session verification.",
+      "files": [],
+      "expectations": [
+        "architecture.md exists and is under 150 lines",
+        "domain-glossary.md exists and is under 150 lines",
+        "conventions.md exists and is under 150 lines",
+        "architecture.md contains a 'Known Gaps' or 'Tech Debt' section (not just architecture facts)",
+        "architecture.md mentions Hotwire Native and the advisory_fetch single-thread queue design",
+        "domain-glossary.md contains a 'Footguns' section with at least one wrong-vs-right code pattern",
+        "domain-glossary.md covers the ShowImpression vs Interaction vs WatchHistory three-way distinction",
+        "conventions.md documents the store_accessor rule for shows.metadata JSONB with the wrong pattern explicitly called out",
+        "conventions.md covers test auth helpers (sign_in_as vs sign_in_as_system distinction)",
+        "benchmark.md exists in .claude/rules/ with verifiable Q&A that could be used in a fresh session"
+      ]
+    }
+  ]
+}
