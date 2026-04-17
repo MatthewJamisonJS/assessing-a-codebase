@@ -1,15 +1,9 @@
 ---
 name: assessing-a-codebase
-description: Creates .claude/rules/ context files (architecture.md, domain-glossary.md, conventions.md) that persist codebase knowledge across AI sessions. Use this skill whenever someone asks to: create rules files, set up .claude/rules/, make AI sessions "arrive warm", document the repo for AI, set up persistent/working context, stop sessions from re-deriving architecture, or reduce session onboarding overhead. Also use when onboarding to a new codebase and wanting permanent context files so future sessions start informed. Do NOT use for: one-time codebase analysis, answering questions about specific features, updating existing rules files, or writing a README.
+description: "Use whenever AI sessions keep re-deriving codebase knowledge from scratch — symptoms include sessions starting slow, AI re-explaining domain concepts, requests to create rules files, set up .claude/rules/, make sessions arrive warm, document the repo for AI, set up persistent context, or reduce onboarding overhead. Also use when onboarding to a new codebase and wanting permanent context files so future sessions start informed. Do NOT use for one-time analysis, targeted feature questions, updating existing rules files, or writing a README."
 ---
 
-## Invocation
-
-Invoke as `/assessing-a-codebase` (uses current directory) or `/assessing-a-codebase /path/to/repo`.
-
-**Target path: `$ARGUMENTS`** — if empty, use the current working directory for all steps. If a path was provided, all commands, agent dispatches, and file writes resolve against it.
-
----
+# Assessing a Codebase
 
 ## Core Principle
 
@@ -17,10 +11,10 @@ Acquire the minimum context needed to understand a codebase from five irreducibl
 
 The goal is **tiered persistent memory**:
 
-- `.claude/rules/` — **hot memory**: concise navigation files always loaded at session start. Scannable in seconds. **Hard limit: 150 lines per file.** Files over this limit get ignored.
-- `.claude/rules/references/` — **cold memory**: on-demand deep specs for complex subsystems. Only created when a topic is too large for a hot-memory pointer.
+- `.claude/rules/` — **hot memory**: concise navigation files (architecture, domain, conventions). Always loaded. Scannable in seconds. Point to deeper knowledge; don't duplicate it.
+- `.claude/rules/references/` — **cold memory**: on-demand deep specs for complex subsystems. Created only when a topic is too large for a hot-memory pointer.
 
-A session loading these files should answer any architectural, domain, or conventions question with zero tool calls. The benchmark.md written in Step 5 is the proof.
+A session loading these files should answer any architectural, domain, or conventions question with zero tool calls. The benchmark is the proof.
 
 ---
 
@@ -38,67 +32,37 @@ Read everything you find. Map which perspectives are already covered vs. missing
 
 ---
 
-## Edge Cases — Resolve Before Step 2
-
-Run these checks. They determine which parts of Step 2 are safe to execute.
-
-**No git history or non-git repo:**
-```bash
-git log --oneline -5 2>/dev/null || echo "NO_GIT"
-```
-If `NO_GIT`: skip all `git log`, `git shortlog`, and `xargs git diff-tree` commands in Step 2. Point agents at source files directly instead of most-changed-file lists.
-
-**Shallow git history (fewer than 20 commits):**
-```bash
-git rev-list --count HEAD 2>/dev/null
-```
-If < 20: skip most-changed-files analysis. Focus domain and conventions agents on entry-point files instead.
-
-**Monorepo:**
-```bash
-ls packages/ apps/ services/ 2>/dev/null
-```
-If multiple sub-packages exist: scope all steps to the relevant sub-package path. Note cross-package dependencies explicitly in `architecture.md`.
-
-**No schema file:**
-```bash
-find . -name "structure.sql" -o -name "schema.rb" -o -name "*.prisma" -o -name "schema.sql" 2>/dev/null | head -3
-```
-If nothing found: skip schema grep in Step 2. Domain model knowledge comes from model/entity source files — flag this in `domain-glossary.md`.
-
----
-
 ## Step 2: Deterministic Analysis (Near-Zero Cost)
 
-These steps are mechanical. Run the ones that apply given the edge-case checks above.
+These steps are mechanical. Run them all — they provide ground truth that cannot be safely inferred from source code.
 
-### Critical path identification
+**If prerequisites are missing:** shallow git clone (< 50 commits) → skip the tribal-knowledge analysis, focus on schema + deps. `gh` not authenticated → read `git log` commit bodies instead of `gh pr list`. No git at all → skip the two git sub-sections entirely. No expert available → skip Step 4, note unresolved gaps in the files.
+
+### Critical path identification (tribal knowledge locator)
 
 ```bash
-# Confirm depth before running — requires at least 20 commits
-git log --oneline -100 | wc -l
+# Most-changed files = where tribal knowledge concentrates
+git log --oneline -100 | wc -l  # confirm depth available
 git log --format="%H" | head -100 | xargs -I{} git diff-tree --no-commit-id -r --name-only {} | sort | uniq -c | sort -rn | head -30
 ```
 
-The top files are where tacit knowledge lives.
+The top files here are where tacit knowledge lives. Proposals and expert interviews should focus on these areas.
 
-### Commit rhythm, style, and dead code signals
+### Commit rhythm and style
 
 ```bash
 git log --oneline -60          # active areas, rhythm, message format
-git shortlog -sn --no-merges   # who built what
+git shortlog -sn --no-merges   # who built what — who to interview
 git log --oneline --after="6 months ago" -- <top-file-from-above>
-
-# Dead code / abandoned paths: find files/dirs not touched in 12+ months
-git log --after="$(date -v-12m +%Y-%m-%d 2>/dev/null || date -d '12 months ago' +%Y-%m-%d)" \
-  --name-only --pretty=format: | grep -v '^$' | sort -u > /tmp/active_files.txt
-# Any top-level directory NOT in active_files is a dead code candidate
 ```
 
 ### Schema facts (authoritative — never infer from application code)
 
 ```bash
-# Run on whatever schema file was found in the edge-case check
+# Find the schema file
+find . -name "structure.sql" -o -name "schema.rb" -o -name "*.prisma" -o -name "schema.sql" 2>/dev/null | head -5
+
+# Run on whatever is found:
 grep -rE "(deleted_at|destroyed_at|archived_at|discarded_at)" <schema-file>  # soft-delete
 grep -rE '"type"' <schema-file>                                               # STI / discriminators
 grep -rE "(tenant_id|org_id|account_id|workspace_id)" <schema-file>          # tenancy
@@ -118,33 +82,37 @@ find . -type d \( -name "adr" -o -name "decisions" -o -name "proposals" -o -name
 # Recent PR descriptions — tradeoffs and rejected alternatives
 gh pr list --state merged --limit 15 --json number,title,body 2>/dev/null
 
-# Changelog — the project's own narrative
+# Changelog — the project's own narrative of what changed and why
 cat CHANGELOG.md 2>/dev/null | head -120
 ```
+
+Read the most recent proposals and 5–10 PR descriptions. They capture design intent, failure modes, and alternatives considered — information that disappears into source code and is never recovered.
 
 ### Environment and linting
 
 ```bash
-cat .env.example .env.sample 2>/dev/null
-cat .rubocop.yml .eslintrc* pyproject.toml 2>/dev/null | head -80
-ls Procfile docker-compose.yml fly.toml .github/workflows/ 2>/dev/null
+cat .env.example .env.sample 2>/dev/null          # external integrations, feature flags
+cat .rubocop.yml .eslintrc* pyproject.toml 2>/dev/null | head -80  # machine-readable conventions
+ls Procfile docker-compose.yml fly.toml .github/workflows/ 2>/dev/null  # deployment shape
 ```
 
 ---
 
 ## Step 3: Parallel Agent Dispatch
 
-Dispatch all three agents **in the same message**. Each follows a scoped pattern: identify structure → targeted reads → report findings. Keep agents tightly scoped — unlimited file exploration fills context without proportional gain.
+Dispatch all three agents **in the same message**. Each follows the Pareto-efficient pattern: semantic search to identify structure → targeted dependency reads → report findings. Do not let agents roam.
+
+**Before dispatching:** substitute `[path]` with `$ARGUMENTS` if the user provided a path, otherwise `.`. Substitute `[top files from git analysis]` and `[N most-changed model files from git analysis]` with the actual top 8 paths from Step 2's git output.
 
 **Agent 1 — Architecture & Structure**
 
 ```
-In the codebase at [resolved target path from $ARGUMENTS or cwd]:
+In the codebase at [path]:
 
-Phase 1 — Identify structure: list the top-level directories and the test
+Phase 1 — Identify structure: list the top-level directories and the test 
 directory structure. What is the namespace or routing configuration?
 
-Phase 2 — Targeted reads: read the dependency manifest, the main router or
+Phase 2 — Targeted reads: read the dependency manifest, the main router or 
 routes config, and one representative controller/handler. Find:
 - All active vs. legacy frontend tiers (which is touched, which is never touched)
 - Background job system (primary vs. legacy) and which directories each uses
@@ -152,79 +120,79 @@ routes config, and one representative controller/handler. Find:
 - Service/command/interactor layer if it exists — location and decision criteria
 - Internal or private packages — what does each do?
 - Multi-tenancy: how is org/tenant scoping enforced and at which layer?
-- Dead code: any top-level directories, files, or packages that appear abandoned
-  (no commits in 12+ months, or explicitly replaced by something newer)
 
-Phase 3 — Return: flat list with directory paths and specific findings.
+Phase 3 — Return: flat list with directory paths and specific findings. 
 No prose. No speculation beyond what the files show.
-Flag dead code explicitly with the label DEAD CODE.
 ```
 
 **Agent 2 — Domain Model**
 
 ```
-In the codebase at [resolved target path from $ARGUMENTS or cwd]:
+In the codebase at [path]:
 
 Phase 1 — Identify the domain layer: find all model/entity files.
 
-Phase 2 — Targeted reads: read the [N most-changed model files from git analysis,
-or entry-point model files if no git history] and the central domain model. Find:
+Phase 2 — Targeted reads: read the [N most-changed model files from git analysis]
+and the central domain model. Find:
 - The central entity (what everything else relates to)
 - Any entity with a non-obvious table name (STI, shared tables — name the actual table)
-- Entities with BOTH a soft-delete column AND an archive column (these serve distinct purposes — document both)
+- Entities with BOTH a soft-delete column AND an archive column (these serve distinct purposes)
+- For soft-delete: does the model use a gem (is_paranoid, acts_as_paranoid) or raw columns directly? The behavior differs — be explicit
 - Lifecycle callbacks that auto-create other entities
+- Callbacks that write denormalized data onto other models (look for after_create/after_update/after_commit writing to associations — these are caches, not sources of truth)
+- Safe query helpers for models with ambiguous FK arrangements (e.g., a junction with person1_id/person2_id — is there a class method that handles the ambiguity?)
 - Delegation or forwarding methods that change which entity is "active" for an operation
 - Cross-module dependencies: which modules depend on which others in non-obvious ways?
 - How does tenant/org scoping propagate through the domain layer?
-- FOOTGUNS: patterns that look correct but silently break something — e.g., using a
-  library-internal column for app logic, calling a method that bypasses callbacks,
-  accessing JSONB directly vs. via an accessor. For each: name it, show the wrong
-  pattern vs. the right one.
 
-Phase 3 — Return: entity names, file paths, and specifically what is non-obvious
-about each. Skip obvious things. Mark footguns with FOOTGUN label.
+Phase 3 — Return: entity names, file paths, and specifically what is non-obvious 
+about each. Skip obvious things.
 ```
 
 **Agent 3 — Conventions in Practice**
 
 ```
-In the codebase at [resolved target path from $ARGUMENTS or cwd]:
+In the codebase at [path]:
 
-Phase 1 — Identify pattern sources: the linting config, one representative
+Phase 1 — Identify pattern sources: the linting config, one representative 
 file from each of: controllers, models, views/templates, tests.
 
-Phase 2 — Read 8-10 files (prioritize the most-changed files from this list:
-[top files from git analysis, or entry-point files if no git history]). Find:
+Phase 2 — Read 8-10 files (prioritize the most-changed files from this list: 
+[top files from git analysis]). Find:
 - What required base classes, includes, or mixins appear in every [model/controller/test]?
-- How is authorization checked in practice? Show file:line of the CORRECT pattern and
-  the WRONG pattern that looks similar (the subtle difference is what new devs get wrong).
-- How are bulk operations written? Show file:line example.
+- How is authorization checked in practice? Show file:line example of the correct pattern.
+- How are bulk operations written? Show file:line example. Is there any post-bulk-insert requirement (e.g., cache-busting calls that ActiveRecord callbacks would have triggered)?
 - What cross-module boundaries exist that aren't obvious from the directory structure?
-- What test helpers exist? What directories hold what test types?
+- What test helpers and factories exist? What directories hold what test types?
+- What is set up or disabled in test_helper? (job queues faked, auditors disabled, HTTP stubs, etc.)
 - What commit message format does git log show?
-- Top 3 "looks right but silently breaks" patterns — things the codebase consistently
-  guards against (update_column, direct hash access instead of accessor, etc.).
 
-Phase 3 — Return: findings as file:line — what it shows. No prose.
-Flag anti-patterns that repeat consistently (they're probably canonical here, not mistakes).
+Phase 3 — Return: findings as file:line — what it shows. No prose. 
+Flag anything that looks like an anti-pattern but repeats consistently 
+(it's probably canonical here).
 ```
 
 ---
 
 ## Step 4: Expert Interview (Tacit Knowledge Only)
 
-**When available:** Read all agent findings before asking. Interview only what the artifacts couldn't answer.
+This step is the primary source of "things that look right but are wrong" — the distinctions that won't appear in any file read. Agents find what the code shows; the expert fills in what the code hides. Do not skip this lightly.
+
+Read all agent findings before asking. Interview only what the artifacts couldn't answer.
 
 Ask:
 - "What 3–5 domain terms regularly confuse people new to this codebase?"
 - "What looks like an anti-pattern but is the right call here — and why?"
-- "What would you warn someone not to do — things that look right but silently break something?"
 - "Is anything named one thing but architecturally another?" (shared tables, STI, polymorphic behavior that doesn't match naming)
+- "What's the canonical way to [check permissions / scope a query / enqueue a job]?"
+- "What would you warn someone not to do — things that look right but silently break something?" (e.g. soft-delete via gem vs. raw columns — the behavior at query time differs)
 - For top-changed files from git analysis: "Why does [file] change so frequently?"
 
-**When no human is available:** Mine PR descriptions and commit messages for the same signals. Look for "don't use X", "note:", "important:", "gotcha" language in comments and PR bodies.
+Document answers verbatim. These fill the gap between what exists and what's known.
 
-Document answers. These fill the gap between what exists and what's known.
+Route into Step 5: domain concepts → domain-glossary.md; "looks like anti-pattern but is right here" and canonical patterns → conventions.md; why-files-change-frequently and architectural intent → architecture.md.
+
+If no expert is available, skip this step. Add `<!-- UNVERIFIED: expert interview skipped -->` at the top of each file so future sessions know the tacit-knowledge layer is missing.
 
 ---
 
@@ -232,115 +200,102 @@ Document answers. These fill the gap between what exists and what's known.
 
 ### Hot memory (`.claude/rules/`) — Navigation, not encyclopedia
 
-**Hard limit: 150 lines per file.** If you're over, cut in this order:
-1. Generic facts derivable from reading one obvious file
-2. Verbose explanations compressible to a single line
-3. Less-critical subsystems (move to `references/` or omit)
+**architecture.md** — Answer "what is this system and where does everything live?":  
+Language/framework/version, database, frontend tiers (active / legacy / never touch + routing rule between them), namespace structure, tenancy pattern + enforcement layer, job systems (primary vs. legacy + their directories), auth stack (each library's role), complete soft-delete model list from schema grep, internal packages with one-line purposes, test directory map, active roadmap.
 
-Every line must either **prevent a mistake** or **replace a question to a teammate**. If it does neither, cut it.
+**domain-glossary.md** — Answer "what do these words mean?":  
+One paragraph per concept where the answer to *"what would someone get wrong?"* is non-trivial. Always include: non-obvious relationships between central entities, STI models with their actual table name, entities that auto-create others in callbacks, what key delegation methods actually return, explicit "A vs B vs C" for easily confused concepts.
 
----
+**conventions.md** — Answer "how do we build things here?":  
+View layer hierarchy + where new views go, authorization (correct AND wrong pattern in a code block — the difference is often subtle), handler/controller structure, model conventions (required includes, bulk pattern, what not to use), service object / command class decision criteria, test directory map, route organization, commit message format from git log.
 
-**`architecture.md`** — Answers: "what is this system and where does everything live?"
+**Date stamp:** First line of each hot-memory file: `<!-- Last verified: YYYY-MM-DD -->`
 
-Required sections:
-- Language/framework/version, database, frontend tiers (active / legacy / never touch + routing rule between them)
-- Namespace structure, tenancy pattern + enforcement layer
-- Job systems (primary vs. legacy + their directories and queue config)
-- Auth stack (each library's role)
-- Complete soft-delete model list from schema grep
-- Internal packages with one-line purposes
-- Test directory map
-- **Known Gaps / Tech Debt**: dead code directories, commented-out features, unfinished APIs, anything that "looks active but isn't" — this section prevents wasted effort on code that will be deleted
-
----
-
-**`domain-glossary.md`** — Answers: "what do these words mean?"
-
-Required sections:
-- One paragraph per concept where *"what would someone get wrong?"* is non-trivial
-- Non-obvious relationships between central entities
-- STI models with their actual table name
-- Entities that auto-create others in callbacks
-- Explicit "A vs B vs C" for easily confused concepts
-- **Footguns**: patterns that look correct but silently break something. For each: wrong pattern → right pattern → why. These are the highest-value lines in the file. Examples: using a library-internal column for app logic; accessing JSONB directly instead of via store_accessor; calling a method that bypasses callbacks.
-
----
-
-**`conventions.md`** — Answers: "how do we build things here?"
-
-Required sections:
-- View layer hierarchy + where new views go
-- Authorization: show BOTH the correct pattern AND the wrong-looking-similar pattern in code blocks
-- Handler/controller structure
-- Model conventions: required includes, bulk pattern, and at least one explicit "never do X, use Y instead" with reason
-- Service object / command class decision criteria
-- Test directory map + auth helpers
-- Route organization
-- Commit message format from git log
-
----
+**Rule:** If a developer could derive it by reading one obvious file, omit it. Every line must either prevent a mistake or replace a question to a teammate.
 
 ### Cold memory (`.claude/rules/references/`) — Only when needed
 
-Create a reference file when a topic is genuinely too complex for a hot-memory pointer. Link to it from the hot-memory file. Don't create cold memory speculatively.
+Create a reference file when a topic is genuinely too complex for a hot-memory pointer — a deep authorization spec, a finance module architecture, a complex STI hierarchy. Link to it from the relevant hot-memory file. Don't create cold memory speculatively.
 
 ---
 
-**`benchmark.md`** — Write this as the fourth output file, immediately after the other three. You already have everything you need — no new reads required.
+## Step 6: Quality Audit (Parallel)
 
-```markdown
-# Context Benchmark — [Repo Name]
+Dispatch all three agents **in the same message**.
 
-## What these files eliminate
+**Agent A — Correctness**
 
-High-cost derivations a cold session would otherwise spend multiple reads on:
+```
+Read architecture.md, domain-glossary.md, and conventions.md from .claude/rules/.
+Cross-check:
+- Soft-delete column list vs. the schema grep output from Step 2
+- Every directory path mentioned — verify it exists
+- Entity relationships described — verify against model files
 
-| Fact | Source without rules files |
-|---|---|
-| [non-obvious architectural fact] | [file(s) that reveal it] |
-| [non-obvious auth/session design decision] | [file(s)] |
-| [non-obvious domain relationship or constraint] | [file(s)] |
-| [non-obvious job/queue design rationale] | [file(s)] |
-| [footgun or anti-pattern] | [file(s)] |
-
-## Verification questions
-
-Run these in a fresh session. All three should be answered with zero tool calls.
-
-1. **Domain**: [central term] — what is it and how does it relate to [adjacent term]?
-   Expected: [answer]
-
-2. **Authorization**: How do I scope a query / add a permission check for [action] on [entity]?
-   Expected: [correct pattern]
-
-3. **Placement**: Where does a new [view / worker / test] go?
-   Expected: [directory]
-
-## Intentionally excluded
-
-These are NOT covered — they are too volatile or too granular to be worth warm-starting:
-- [list of things deliberately omitted and why]
+Return: file:line — the claim — why it's wrong or unverifiable. Nothing else.
 ```
 
-The "intentionally excluded" section is as important as the rest: it prevents future maintainers from bloating the rules files with noise that will eventually get ignored.
+**Agent B — Signal**
+
+```
+Read the same three files.
+Flag:
+- Passages reducible by 30%+ without information loss
+- Facts a developer would still need to look up (not actionable as written)
+- Anything derivable from one obvious file (README, schema, linting config)
+
+Return: file:line — the entry — why it's low signal. Nothing else.
+```
+
+**Agent C — Redundancy**
+
+```
+Read the same three files.
+Flag:
+- The same fact stated in two or more files
+- Glossary entries that duplicate conventions.md content
+
+Return: file — what's duplicated — where the canonical home should be. Nothing else.
+```
+
+Apply findings. Note false positives and skip.
 
 ---
 
-## Step 6: Self-Check Before Writing
+## Step 7: Benchmark
 
-Before writing any file, run this check inline (no agents needed):
+Fresh session, four questions:
 
-1. **Line count**: Draft each file mentally — if any section is hitting 40+ lines, it's probably a candidate for `references/` or a cut.
-2. **Correctness**: Verify any directory path, class name, or enum value you're about to write exists on disk. `ls` or `grep` it — don't trust memory.
-3. **Redundancy**: If the same fact appears in two files, pick the right owner and remove the duplicate.
-4. **Signal**: Every line either prevents a mistake or replaces a question to a teammate. If neither, cut it.
+1. **Domain:** "What is [central term] and how does it relate to [adjacent term]?"
+2. **Authorization:** "How do I add a permission check for [action] on [entity]?"
+3. **Placement:** "Where does a new [view / worker / test] go?"
+4. **Conventions:** "What commit message format does this project use and how are bulk inserts written?"
+
+**Pass:** All four answered correctly with zero tool calls. Failure = gap in the files. Find it, fill it, retest.
 
 ---
 
-## Step 7: Cleanup
+## Step 8: Cleanup
 
-Remove structural facts now covered by rules files from any `CLAUDE.md` — duplicates become contradictions over time. Note that the rules files exist, when they were last verified, and which codebase they cover.
+Remove structural facts now covered by rules files from any `CLAUDE.md` — duplicates become contradictions.
+
+Write a memory entry: "`[project name]` has `.claude/rules/` files (architecture.md, domain-glossary.md, conventions.md) — verified [date]. Do not re-derive topics they cover."
+
+---
+
+## Step 9: Keep Files Current
+
+Not a re-run — targeted updates only.
+
+After any significant architectural change, run:
+
+```bash
+git log --oneline --after="<last-verified-date>"
+```
+
+If the diff touches areas the rules files describe: re-run Steps 1–2 for the affected area, update only the changed lines, and update the date stamp. No other steps needed unless the benchmark fails.
+
+**Triggers:** major dependency change, new module, auth refactor, team-reported stale answer.
 
 ---
 
@@ -353,5 +308,3 @@ Remove structural facts now covered by rules files from any `CLAUDE.md` — dupl
 | Asking the expert about domain | Do proposals / ADRs / PR descriptions already document it? |
 | Writing a glossary entry | Is it already in a proposal or README? |
 | Creating a cold-memory reference file | Is a hot-memory pointer sufficient? |
-| Running git analysis commands | Did the edge-case checks show < 20 commits or no git? |
-| Adding a line to any rules file | Does it prevent a mistake or replace a question to a teammate? |
