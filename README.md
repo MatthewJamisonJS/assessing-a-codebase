@@ -1,33 +1,37 @@
 # assessing-a-codebase
 
-A [Claude Code skill](https://docs.anthropic.com/en/docs/claude-code/skills) that produces a 4-file cold-start context package for any codebase — so every AI session starts already knowing the architecture, domain, and conventions instead of re-deriving them from scratch.
+A [Claude Code skill](https://docs.anthropic.com/en/docs/claude-code/skills) that runs a one-time analysis of any codebase and writes persistent context files so every future session already knows the architecture, domain, and conventions — no re-deriving from scratch.
 
-## What it produces
+## The problem it solves
 
-Running `/assessing-a-codebase` writes four files to `.claude/rules/`:
+Every Claude Code session starts cold. Ask it something architectural and it reads half the repo to get oriented. Do that ten times a day and you're paying the same onboarding cost on repeat.
 
-| File | Answers |
-|---|---|
-| `architecture.md` | What is this system and where does everything live? |
-| `domain-glossary.md` | What do these domain terms mean — and what are the footguns? |
-| `conventions.md` | How do we build things here? (auth, testing, placement, patterns) |
-| `benchmark.md` | What did these files eliminate, and how do you verify they work? |
+This skill runs once, writes three files to `.claude/rules/`, and Claude loads them automatically from then on. Session starts warm. Questions get direct answers.
 
-Each file has a hard 150-line limit. The goal is navigation, not encyclopedia — every line either prevents a mistake or replaces a question to a teammate.
+## What it writes
 
-## How it works
+```
+.claude/rules/
+├── architecture.md     # What is this system, where does everything live
+├── domain-glossary.md  # What do the domain terms mean, what are the footguns
+└── conventions.md      # How do we build things here
+```
 
-1. **Assess existing knowledge** — reads README, CLAUDE.md, existing rules files before acquiring anything new
-2. **Deterministic analysis** — git history, schema grep, dependency manifest, PR descriptions
-3. **Parallel agent dispatch** — three scoped agents for architecture, domain model, and conventions
-4. **Expert interview** — asks targeted questions about footguns, confusing naming, and tacit knowledge
-5. **Write memory files** — hot memory (`.claude/rules/`) with optional cold memory (`.claude/rules/references/`)
-6. **Self-check** — line count, correctness, redundancy, signal
-7. **Cleanup** — removes duplicated structural facts from CLAUDE.md
+Hard cap: 200 lines per file. The goal is navigation, not documentation — every line either prevents a mistake or replaces a question to a teammate. If a topic needs more depth, it goes in `.claude/rules/references/` and gets a pointer.
+
+## Staying warm across repo switches and git clean
+
+`.claude/rules/` is gitignored — it's personal context, not team documentation. That means it disappears on a fresh clone, `git clean -fdx`, or `git stash --all`. The skill handles this: on first run it caches the rules to `~/.claude/projects/<repo>/context-cache/` and installs a `resurface` command in your shell (Fish, Zsh, or Bash — auto-detected, no manual config edits).
+
+```bash
+# rules files gone after git clean or switching machines?
+resurface
+# → restores .claude/rules/ from cache in seconds
+```
+
+`resurface` is git-root-aware. Run it from anywhere inside the repo. It never overwrites files you've locally edited.
 
 ## Install
-
-Copy `SKILL.md` into your Claude Code skills directory:
 
 ```bash
 mkdir -p ~/.claude/skills/assessing-a-codebase
@@ -35,7 +39,7 @@ curl -o ~/.claude/skills/assessing-a-codebase/SKILL.md \
   https://raw.githubusercontent.com/MatthewJamisonJS/assessing-a-codebase/main/SKILL.md
 ```
 
-Or clone the repo:
+Or clone:
 
 ```bash
 git clone https://github.com/MatthewJamisonJS/assessing-a-codebase ~/.claude/skills/assessing-a-codebase
@@ -43,26 +47,35 @@ git clone https://github.com/MatthewJamisonJS/assessing-a-codebase ~/.claude/ski
 
 ## Usage
 
-In any Claude Code session, from the root of a codebase:
+From the root of any repo:
 
 ```
 /assessing-a-codebase
 ```
 
-Or with an explicit path:
+Or point it at a path:
 
 ```
 /assessing-a-codebase /path/to/repo
 ```
 
-Claude will run the full analysis and write the rules files directly into the target repo's `.claude/rules/` directory.
+The full run takes 10–20 minutes on a large codebase. Run it once, get `resurface` for free, and you're done.
 
-## What makes this different from just asking Claude to document a codebase
+## How it works
 
-A one-off "document this codebase" request produces output that disappears when the session ends. This skill produces **persistent, structured files** that Claude Code loads automatically at the start of every future session — so you never pay the cold-start cost again.
+The skill works in ten steps:
 
-The `benchmark.md` file verifies this: it includes verification questions that should be answerable with zero tool calls in a fresh session.
+1. **Check existing knowledge** — reads README, CLAUDE.md, any existing rules before touching anything
+2. **Deterministic analysis** — git history, schema grep, dependency manifest, recent PR descriptions
+3. **Three parallel agents** — architecture & structure, domain model, conventions in practice
+4. **Expert interview** — asks targeted questions about footguns, confusing naming, tacit knowledge the code won't show
+5. **Write the rules files** — architecture, domain-glossary, conventions (≤200 lines each)
+6. **Quality audit** — three parallel agents checking correctness, signal, and redundancy
+7. **Benchmark** — fresh session, four questions, should pass with zero tool calls
+8. **Cleanup** — removes duplicated structural facts from CLAUDE.md
+9. **Resurfacing setup** — caches rules, detects shell, installs `resurface`
+10. **Maintenance** — targeted update process for when the codebase changes
 
 ## Evals
 
-The `evals/` directory contains the test cases used to develop this skill, including assertions that verify the output quality. Pass rate: **83% with skill vs 20% without** across 3 test scenarios (warm-start, explicit-files, onboarding).
+`evals/` has the test cases used to develop this skill. Pass rate: **83% with skill vs 20% without** across warm-start, explicit-files, and onboarding scenarios.
