@@ -333,6 +333,7 @@ SHELL_TYPE=$(basename "$SHELL")
 
 ```bash
 mkdir -p ~/.config/fish/functions
+cat > ~/.config/fish/functions/resurface.fish << 'RESURFACE'
 ```
 
 ```fish
@@ -350,6 +351,7 @@ function resurface --description "Restore .claude/rules/ from cache after fresh 
     rsync -av --ignore-existing $cache/ "$repo/.claude/rules/"
     echo "resurface: context restored from $cache"
 end
+RESURFACE
 ```
 
 **Zsh** (`$SHELL_TYPE = zsh`) — check for sentinel then append to `~/.zshrc`:

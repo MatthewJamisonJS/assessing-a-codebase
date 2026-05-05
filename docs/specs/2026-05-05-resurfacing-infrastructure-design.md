@@ -5,7 +5,7 @@
 
 ## Context
 
-`assessing-a-codebase` creates `.claude/rules/` files that prime Claude with codebase knowledge. These files are gitignored (not committed) and disappear silently on `git stash`, branch checkout, or repo switch — requiring a full re-assessment to recover them.
+`assessing-a-codebase` creates `.claude/rules/` files that prime Claude with codebase knowledge. These files are gitignored (not committed) and disappear on a fresh clone (new machine or CI), `git clean -fdx`, or `git stash --all` — requiring a full re-assessment to recover them.
 
 This design adds Step 9: Resurfacing Infrastructure, which solves this by caching rules files outside the working tree and installing a git-aware `resurface` shell command.
 
