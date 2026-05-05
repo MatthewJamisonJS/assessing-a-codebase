@@ -42,7 +42,7 @@ Two new capabilities added at the end of assessment:
 - Then: `.claude/rules/` in `.gitignore`, cache at `~/.claude/projects/-Users-me-Code-my-app/context-cache/`, `resurface` available in terminal
 
 **Scenario 2 — Rules lost after `git stash`:**
-- Given: `.claude/rules/` was stashed
+- Given: `.claude/rules/` was removed via git clean -fdx or git stash --all
 - When: developer runs `resurface` from anywhere inside the repo
 - Then: missing rules files restored from cache; locally-modified files untouched (`--ignore-existing`)
 

@@ -303,7 +303,7 @@ Write a memory entry: "`[project name]` has `.claude/rules/` files (architecture
 
 ## Step 9: Resurfacing Infrastructure
 
-Rules files are gitignored local context — they vanish on `git stash`, branch checkout, or repo switch. This step caches them outside the working tree and installs a shell command that restores them in one keystroke from any terminal.
+Rules files are gitignored local context — they vanish on a fresh clone (new machine or CI), `git clean -fdx`, or `git stash --all`. This step caches them outside the working tree and installs a shell command that restores them in one keystroke from any terminal.
 
 ### Derive the project slug
 
@@ -329,7 +329,11 @@ rsync -av .claude/rules/ "$CACHE/"
 SHELL_TYPE=$(basename "$SHELL")
 ```
 
-**Fish** (`$SHELL_TYPE = fish`) — write `~/.config/fish/functions/resurface.fish`:
+**Fish** (`$SHELL_TYPE = fish`) — ensure the functions directory exists and write `~/.config/fish/functions/resurface.fish`:
+
+```bash
+mkdir -p ~/.config/fish/functions
+```
 
 ```fish
 function resurface --description "Restore .claude/rules/ from cache after branch switch or git stash"
@@ -342,7 +346,8 @@ function resurface --description "Restore .claude/rules/ from cache after branch
     if not test -d $cache
         echo "resurface: no cache found for $slug — run assessing-a-codebase first" >&2; return 1
     end
-    rsync -av --ignore-existing $cache/ ./
+    mkdir -p "$repo/.claude/rules"
+    rsync -av --ignore-existing $cache/ "$repo/.claude/rules/"
     echo "resurface: context restored from $cache"
 end
 ```
@@ -359,7 +364,8 @@ resurface() {
     slug="${repo//\//-}"
     cache="$HOME/.claude/projects/$slug/context-cache"
     [ -d "$cache" ] || { echo "resurface: no cache found for $slug — run assessing-a-codebase first" >&2; return 1; }
-    rsync -av --ignore-existing "$cache/" ./
+    mkdir -p "$repo/.claude/rules"
+    rsync -av --ignore-existing "$cache/" "$repo/.claude/rules/"
     echo "resurface: context restored from $cache"
 }
 # <<< resurface (claude-code) <<<
@@ -379,7 +385,8 @@ resurface() {
     slug="${repo//\//-}"
     cache="$HOME/.claude/projects/$slug/context-cache"
     [ -d "$cache" ] || { echo "resurface: no cache found for $slug — run assessing-a-codebase first" >&2; return 1; }
-    rsync -av --ignore-existing "$cache/" ./
+    mkdir -p "$repo/.claude/rules"
+    rsync -av --ignore-existing "$cache/" "$repo/.claude/rules/"
     echo "resurface: context restored from $cache"
 }
 # <<< resurface (claude-code) <<<
@@ -387,7 +394,7 @@ RESURFACE
 fi
 ```
 
-> **After this step:** open a new terminal (or run `source ~/.zshrc` / `source ~/.bashrc`). The `resurface` command is now available in every repository that has been assessed.
+> **After this step:** open a new terminal to activate `resurface`. For Zsh/Bash you can also run `source ~/.zshrc` / `source ~/.bashrc` in the current terminal. For Fish, run `exec fish`. The `resurface` command is now available in every repository that has been assessed.
 
 ### Intended workflow
 
@@ -395,7 +402,7 @@ fi
 1. Run assessing-a-codebase once per repo
    → .claude/rules/ created + cached + resurface installed
 
-2. Any time rules disappear (git stash, branch switch, repo change):
+2. Any time rules disappear (fresh clone, git clean -fdx, git stash --all):
    → resurface
    → .claude/rules/ restored from cache in seconds
 
@@ -416,6 +423,12 @@ git log --oneline --after="<last-verified-date>"
 ```
 
 If the diff touches areas the rules files describe: re-run Steps 1–2 for the affected area, update only the changed lines, and update the date stamp. No other steps needed unless the benchmark fails.
+
+After updating any rules file, refresh the cache so future `resurface` calls restore the latest version:
+
+```bash
+rsync -av .claude/rules/ "$HOME/.claude/projects/$(git rev-parse --show-toplevel | tr '/' '-')/context-cache/"
+```
 
 **Triggers:** major dependency change, new module, auth refactor, team-reported stale answer.
 
