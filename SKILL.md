@@ -336,7 +336,7 @@ mkdir -p ~/.config/fish/functions
 ```
 
 ```fish
-function resurface --description "Restore .claude/rules/ from cache after branch switch or git stash"
+function resurface --description "Restore .claude/rules/ from cache after fresh clone, git clean -fdx, or git stash --all"
     set repo (git rev-parse --show-toplevel 2>/dev/null)
     if test -z "$repo"
         echo "resurface: not in a git repository" >&2; return 1
