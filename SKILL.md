@@ -211,6 +211,19 @@ View layer hierarchy + where new views go, authorization (correct AND wrong patt
 
 **Date stamp:** First line of each hot-memory file: `<!-- Last verified: YYYY-MM-DD -->`
 
+**Size:** Target under 200 lines per file — per Anthropic docs, longer files consume more context and reduce adherence. If a topic is growing large, move it to a cold-memory reference file.
+
+**Path-specific rules:** Any rules file can include YAML frontmatter to load conditionally (only when Claude opens matching files). Use this for large codebases with domain-specific sections:
+
+```markdown
+---
+paths:
+  - "src/api/**/*.ts"
+---
+```
+
+**User-level rules:** Cross-project personal conventions that aren't tied to a single repo belong in `~/.claude/rules/` — these load across all projects on this machine, before project rules.
+
 **Rule:** If a developer could derive it by reading one obvious file, omit it. Every line must either prevent a mistake or replace a question to a teammate.
 
 ### Cold memory (`.claude/rules/references/`) — Only when needed
@@ -277,13 +290,131 @@ Fresh session, four questions:
 
 ## Step 8: Cleanup
 
+- Verify `.claude/rules/` is listed in `.gitignore`. These files are personal AI-generated context, not team documentation — they must never be committed. Check and add if missing:
+  ```bash
+  grep -qxF '.claude/rules/' .gitignore 2>/dev/null || echo '.claude/rules/' >> .gitignore
+  ```
+
 Remove structural facts now covered by rules files from any `CLAUDE.md` — duplicates become contradictions.
 
 Write a memory entry: "`[project name]` has `.claude/rules/` files (architecture.md, domain-glossary.md, conventions.md) — verified [date]. Do not re-derive topics they cover."
 
 ---
 
-## Step 9: Keep Files Current
+## Step 9: Resurfacing Infrastructure
+
+Rules files are gitignored local context — they vanish on a fresh clone (new machine or CI), `git clean -fdx`, or `git stash --all`. This step caches them outside the working tree and installs a shell command that restores them in one keystroke from any terminal.
+
+### Derive the project slug
+
+```bash
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+# Uses same derivation as Claude Code's own ~/.claude/projects/<slug>/ path
+SLUG=$(echo "$PROJECT_ROOT" | tr '/' '-')
+CACHE="$HOME/.claude/projects/$SLUG/context-cache"
+```
+
+If `$ARGUMENTS` was provided (a non-`.` path), use that path as `PROJECT_ROOT` instead of the current git root.
+
+### Populate the cache
+
+```bash
+mkdir -p "$CACHE"
+rsync -av .claude/rules/ "$CACHE/"
+```
+
+### Detect shell and install `resurface`
+
+```bash
+SHELL_TYPE=$(basename "$SHELL")
+```
+
+**Fish** (`$SHELL_TYPE = fish`) — ensure the functions directory exists and write `~/.config/fish/functions/resurface.fish`:
+
+```bash
+mkdir -p ~/.config/fish/functions
+cat > ~/.config/fish/functions/resurface.fish << 'RESURFACE'
+```
+
+```fish
+function resurface --description "Restore .claude/rules/ from cache after fresh clone, git clean -fdx, or git stash --all"
+    set repo (git rev-parse --show-toplevel 2>/dev/null)
+    if test -z "$repo"
+        echo "resurface: not in a git repository" >&2; return 1
+    end
+    set slug (string replace -a / - $repo)
+    set cache ~/.claude/projects/$slug/context-cache
+    if not test -d $cache
+        echo "resurface: no cache found for $slug — run assessing-a-codebase first" >&2; return 1
+    end
+    mkdir -p "$repo/.claude/rules"
+    rsync -av --ignore-existing $cache/ "$repo/.claude/rules/"
+    echo "resurface: context restored from $cache"
+end
+RESURFACE
+```
+
+**Zsh** (`$SHELL_TYPE = zsh`) — check for sentinel then append to `~/.zshrc`:
+
+```bash
+if ! grep -q '# >>> resurface (claude-code) >>>' ~/.zshrc 2>/dev/null; then
+cat >> ~/.zshrc << 'RESURFACE'
+# >>> resurface (claude-code) >>>
+resurface() {
+    local repo slug cache
+    repo=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "resurface: not in a git repository" >&2; return 1; }
+    slug="${repo//\//-}"
+    cache="$HOME/.claude/projects/$slug/context-cache"
+    [ -d "$cache" ] || { echo "resurface: no cache found for $slug — run assessing-a-codebase first" >&2; return 1; }
+    mkdir -p "$repo/.claude/rules"
+    rsync -av --ignore-existing "$cache/" "$repo/.claude/rules/"
+    echo "resurface: context restored from $cache"
+}
+# <<< resurface (claude-code) <<<
+RESURFACE
+fi
+```
+
+**Bash** (`$SHELL_TYPE = bash`) — same sentinel pattern, append to `~/.bashrc`:
+
+```bash
+if ! grep -q '# >>> resurface (claude-code) >>>' ~/.bashrc 2>/dev/null; then
+cat >> ~/.bashrc << 'RESURFACE'
+# >>> resurface (claude-code) >>>
+resurface() {
+    local repo slug cache
+    repo=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "resurface: not in a git repository" >&2; return 1; }
+    slug="${repo//\//-}"
+    cache="$HOME/.claude/projects/$slug/context-cache"
+    [ -d "$cache" ] || { echo "resurface: no cache found for $slug — run assessing-a-codebase first" >&2; return 1; }
+    mkdir -p "$repo/.claude/rules"
+    rsync -av --ignore-existing "$cache/" "$repo/.claude/rules/"
+    echo "resurface: context restored from $cache"
+}
+# <<< resurface (claude-code) <<<
+RESURFACE
+fi
+```
+
+> **After this step:** open a new terminal to activate `resurface`. For Zsh/Bash you can also run `source ~/.zshrc` / `source ~/.bashrc` in the current terminal. For Fish, run `exec fish`. The `resurface` command is now available in every repository that has been assessed.
+
+### Intended workflow
+
+```
+1. Run assessing-a-codebase once per repo
+   → .claude/rules/ created + cached + resurface installed
+
+2. Any time rules disappear (fresh clone, git clean -fdx, git stash --all):
+   → resurface
+   → .claude/rules/ restored from cache in seconds
+
+Rules files are never tracked in git. Never committed. Never stashed intentionally.
+The cache is the durable source of truth.
+```
+
+---
+
+## Step 10: Keep Files Current
 
 Not a re-run — targeted updates only.
 
@@ -294,6 +425,12 @@ git log --oneline --after="<last-verified-date>"
 ```
 
 If the diff touches areas the rules files describe: re-run Steps 1–2 for the affected area, update only the changed lines, and update the date stamp. No other steps needed unless the benchmark fails.
+
+After updating any rules file, refresh the cache so future `resurface` calls restore the latest version:
+
+```bash
+rsync -av .claude/rules/ "$HOME/.claude/projects/$(git rev-parse --show-toplevel | tr '/' '-')/context-cache/"
+```
 
 **Triggers:** major dependency change, new module, auth refactor, team-reported stale answer.
 
@@ -308,3 +445,4 @@ If the diff touches areas the rules files describe: re-run Steps 1–2 for the a
 | Asking the expert about domain | Do proposals / ADRs / PR descriptions already document it? |
 | Writing a glossary entry | Is it already in a proposal or README? |
 | Creating a cold-memory reference file | Is a hot-memory pointer sufficient? |
+| Running `resurface` in a new terminal | Is `.claude/rules/` already present? (`ls .claude/rules/`) If yes, skip. |
